@@ -198,68 +198,56 @@
 
         function parseDirectoryListing(html) {
             const files = [];
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
+            const seenFiles = new Set();
             
-            // Look for links to CSV files in the directory listing
-            // The directory listing typically has links like <a href="filename.csv">filename.csv</a>
-            // or <a href="/lobo/Data/PTCData/filename.csv">filename.csv</a>
-            const links = doc.querySelectorAll('a[href$=".csv"]');
+            // Parse link text from HTML anchor tags
+            // Pattern: HREF="...">filename.csv</a> or href="...">filename.csv</a>
+            // Extract the filename from the link text (after "> and before </a>)
+            // This is more reliable than decoding the HREF because the link text is already decoded
+            const linkPattern = /HREF=["'][^"']*\.csv["']\s*>([^<]+\.csv)</gi;
+            const matches = html.matchAll(linkPattern);
             
-            links.forEach(link => {
-                let filename = link.getAttribute('href');
-                // Extract just the filename from the path
-                if (filename) {
-                    // Decode URL-encoded characters (e.g., %20 becomes space)
-                    try {
-                        filename = decodeURIComponent(filename);
-                    } catch (e) {
-                        // If decoding fails, use as-is
-                    }
-                    // Remove leading slashes and get the basename
-                    filename = filename.replace(/^\/+/, '').split('/').pop();
-                    // Skip parent directory links and ensure it's a CSV file
-                    if (filename && filename.endsWith('.csv') && !filename.includes('..') && filename !== '.csv') {
-                        files.push(filename);
-                    }
-                }
-            });
-            
-            // If the above doesn't work, try parsing the HTML text directly
-            // The directory listing format shows: date time size filename.csv
-            if (files.length === 0) {
-                // Look for CSV filenames in table rows or links
-                // Pattern: filename.csv (may have spaces in name like "Ch A.csv")
-                const csvPattern = /([A-Za-z0-9_\-\.\s]+\.csv)/g;
-                const matches = html.match(csvPattern);
+            for (const match of matches) {
+                let filename = match[1];
+                if (!filename) continue;
                 
-                if (matches) {
-                    matches.forEach(match => {
-                        let filename = match.trim();
-                        // Decode URL-encoded characters if present
-                        try {
-                            filename = decodeURIComponent(filename);
-                        } catch (e) {
-                            // If decoding fails, use as-is
-                        }
-                        // Extract just the filename if it contains a path
-                        if (filename.includes('/')) {
-                            filename = filename.split('/').pop();
-                        }
-                        // Ensure it's a valid CSV filename and not part of a path
-                        if (filename && filename.endsWith('.csv') && 
-                            !filename.includes('..') && 
-                            !filename.startsWith('.') &&
-                            !files.includes(filename)) {
-                            files.push(filename);
-                        }
-                    });
+                // The link text is already the clean filename (decoded)
+                filename = filename.trim();
+                
+                // Skip parent directory links and ensure it's a CSV file
+                if (filename && filename.endsWith('.csv') && !filename.includes('..') && filename !== '.csv') {
+                    // Add to list if not already seen
+                    if (!seenFiles.has(filename)) {
+                        files.push(filename);
+                        seenFiles.add(filename);
+                    }
                 }
             }
             
-            // Remove duplicates and sort files by name (newer files typically have later dates in name)
-            const uniqueFiles = [...new Set(files)];
-            return uniqueFiles.sort().reverse();
+            // Fallback: Also try parsing with DOMParser to get link text
+            if (files.length === 0) {
+                try {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    // Find all links that point to CSV files
+                    const links = doc.querySelectorAll('a[href$=".csv" i], a[HREF$=".csv" i]');
+                    
+                    links.forEach(link => {
+                        // Use the link text (which is already decoded) instead of href
+                        let filename = (link.textContent || link.innerText || '').trim();
+                        
+                        if (filename && filename.endsWith('.csv') && !filename.includes('..') && !seenFiles.has(filename)) {
+                            files.push(filename);
+                            seenFiles.add(filename);
+                        }
+                    });
+                } catch (e) {
+                    console.warn('DOMParser fallback failed:', e);
+                }
+            }
+            
+            // Sort files by name (newer files typically have later dates in name)
+            return files.sort().reverse();
         }
 
         function populateFileDropdown(files) {
@@ -295,19 +283,21 @@
             plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
 
             try {
-                // Decode filename if it's already URL-encoded (has % characters)
-                let cleanFilename = filename;
-                try {
-                    // Check if it contains URL-encoded characters
-                    if (filename.includes('%')) {
-                        cleanFilename = decodeURIComponent(filename);
+                // The filename from dropdown should already be clean (decoded by parser)
+                // But ensure it doesn't have path components
+                let cleanFilename = filename.replace(/^\/+/, '').split('/').pop();
+                
+                // If it still has % characters, it might be double-encoded, try decoding
+                if (cleanFilename.includes('%')) {
+                    try {
+                        cleanFilename = decodeURIComponent(cleanFilename);
+                    } catch (e) {
+                        // If decoding fails, use as-is
                     }
-                } catch (e) {
-                    // If decoding fails, use as-is
                 }
-                // Ensure filename doesn't have a leading slash or path
-                cleanFilename = cleanFilename.replace(/^\/+/, '').split('/').pop();
+                
                 // Now encode it properly for the URL (only once)
+                // The filename should be the actual filename like "LX000_test_120325_lionCAP100_Ch A.csv"
                 let url = DATA_BASE_URL + encodeURIComponent(cleanFilename);
                 
                 // Use CORS proxy if specified (proxyIndex >= 0 means we're retrying with a proxy)
