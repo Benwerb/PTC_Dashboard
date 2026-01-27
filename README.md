@@ -6,68 +6,64 @@ An interactive dashboard for visualizing PTC (pH Temperature Conductivity) data 
 
 - Interactive data visualization with Plotly.js
 - File selection dropdown (defaults to most recent file)
-- Customizable X and Y axis selection
+- Customizable X and Y axis selection (default X: DATE TIME, default Y: VRS VOLT)
 - Automatic date/time parsing and conversion
 - Responsive design
 
-## Setup for GitHub Pages
+## Data Source (Local Network)
 
-1. Push this repository to GitHub
-2. Go to your repository settings
-3. Navigate to "Pages" in the left sidebar
-4. Under "Source", select the branch (usually `main` or `master`)
-5. Select the folder (usually `/ (root)`)
-6. Click "Save"
-7. Your site will be available at `https://[username].github.io/PTC_Dashboard/`
+The dashboard reads data from the same folder as `index.html`:
 
-## Data Source
+- **Physical path:** `\\atlas.shore.mbari.org\ProjectLibrary\901805_Coastal_Biogeochemical_Sensing\PTC\PTCData`
+- **Typical file URLs:**
+  - Dashboard: `file://///atlas.shore.mbari.org/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/index.html`
+  - Data folder: `file://///atlas.shore.mbari.org/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/`
 
-Data files are hosted at: `https://www3.mbari.org/lobo/Data/PTCData/`
+When you open the dashboard via **file://** from that path, the app uses the current page’s directory as the data source (same folder as `index.html`). When served over **http**, it uses `/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/` unless you change it in code.
 
-### CORS Handling
+### Changing the data URL
 
-The dashboard automatically handles CORS (Cross-Origin Resource Sharing) issues by:
-1. First attempting a direct fetch from the remote server
-2. If that fails, automatically trying multiple CORS proxy services in sequence:
-   - `https://api.allorigins.win/raw?url=` (primary)
-   - `https://corsproxy.io/?` (fallback)
-   - `https://api.codetabs.com/v1/proxy?quest=` (fallback)
+In `index.html`, the `getDataBaseUrl()` function sets the data path. For **http**, adjust the return value (e.g. if the app is in a subfolder):
 
-If you need to use a different CORS proxy, edit `index.html` and update the `CORS_PROXIES` array.
+```javascript
+return '/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/';
+// Or absolute: 'http://atlas.shore.mbari.org/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/';
+```
 
-## File List Configuration
+## Deployment
 
-The dashboard uses a predefined list of files. To update the file list:
+**Using file:// (UNC share):**
 
-1. Open `index.html`
-2. Find the `KNOWN_FILES` array in the JavaScript section
-3. Update the array with the actual file names from the data directory
+1. Put `index.html` and all CSV files in the same folder: `\\atlas.shore.mbari.org\ProjectLibrary\901805_Coastal_Biogeochemical_Sensing\PTC\PTCData\`
+2. Open `file://///atlas.shore.mbari.org/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/index.html` in a browser.
+3. The directory listing and CSV loads use that same folder. (If the listing fails in your browser, the app will show an error; some browsers restrict `file://` directory access.)
 
-Alternatively, if the data directory supports directory listing, you can modify the code to fetch the file list dynamically.
+**Using a web server:**  
+Configure the server so that path maps to that share, place `index.html` and the CSVs there, and open the dashboard via http.
 
-## CSV Format
+## Directory listing
 
-The CSV files follow this structure:
-- Row 1: Column headers
-- Rows 2-24: Metadata (marked with "H")
-- Row 25-end: Data rows
+The app requests the data URL to get an HTML directory listing, then parses links of the form  
+`HREF="...filename.csv">filename.csv</a>` and uses the link text as the display filename.  
+With **file://**, that request may be blocked by the browser; in that case the file list will not load.
 
-The dashboard automatically:
-- Skips metadata rows
-- Converts date strings to Date objects
-- Parses numeric values
-- Handles missing or empty values
+## CSV format
+
+- Row 1: Column headers  
+- Rows 2–24: Metadata (lines starting with `H,`)  
+- Row 25 onward: Data rows  
+
+The dashboard skips metadata, parses dates (e.g. `Labview Date/Time`, `DATE TIME`), and treats other columns as numbers or strings as appropriate.
 
 ## Usage
 
-1. Select a file from the "Files" dropdown
-2. Choose X-axis column (default: DATE TIME)
-3. Choose Y-axis column (default: VRS VOLTS)
-4. The plot updates automatically when selections change
+1. Select a file from the **Files** dropdown (first item is treated as most recent).
+2. Set **X-Axis** (default: DATE TIME).
+3. Set **Y-Axis** (default: VRS VOLT).
+4. The plot updates when you change file or axes.
 
-## Browser Compatibility
+## Browser requirements
 
-Works in all modern browsers that support:
 - ES6 JavaScript
 - Fetch API
-- Plotly.js
+- Plotly.js (loaded from CDN)

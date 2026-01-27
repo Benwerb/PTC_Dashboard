@@ -126,15 +126,18 @@
     </div>
 
     <script>
-        // Configuration
-        const DATA_BASE_URL = 'https://www3.mbari.org/lobo/Data/PTCData/';
-        
-        // CORS proxy options - tried in order if direct fetch fails
-        const CORS_PROXIES = [
-            'https://api.allorigins.win/raw?url=',
-            'https://corsproxy.io/?',
-            'https://api.codetabs.com/v1/proxy?quest='
-        ];
+        // Configuration - local network data source
+        // When opened as file: index is at .../PTCData/index.html, data is in .../PTCData/
+        // Physical path: \\atlas.shore.mbari.org\ProjectLibrary\901805_Coastal_Biogeochemical_Sensing\PTC\PTCData
+        function getDataBaseUrl() {
+            if (location.protocol === 'file:') {
+                // Same folder as this page: strip "index.html" so base is the PTCData directory
+                return location.href.replace(/[^/]*$/, '');
+            }
+            // When served over http, use this path (adjust if your server mounts it elsewhere)
+            return '/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/';
+        }
+        const DATA_BASE_URL = getDataBaseUrl();
         
         let currentData = null;
         let columns = [];
@@ -146,19 +149,12 @@
             setupEventListeners();
         });
 
-        async function fetchFileList(proxyIndex = -1) {
+        async function fetchFileList() {
             const fileSelect = document.getElementById('fileSelect');
             fileSelect.innerHTML = '<option value="">Loading files...</option>';
 
             try {
-                let url = DATA_BASE_URL;
-                
-                // Use CORS proxy if specified
-                if (proxyIndex >= 0 && proxyIndex < CORS_PROXIES.length) {
-                    url = CORS_PROXIES[proxyIndex] + encodeURIComponent(url);
-                }
-                
-                const response = await fetch(url);
+                const response = await fetch(DATA_BASE_URL);
                 
                 if (!response.ok) {
                     throw new Error(`Failed to load directory listing: ${response.status} ${response.statusText}`);
@@ -180,19 +176,11 @@
                     loadFile(files[0]);
                 }
             } catch (error) {
-                // If direct fetch failed and we haven't tried all proxies yet, retry with next proxy
-                if (proxyIndex < CORS_PROXIES.length - 1) {
-                    const nextProxyIndex = proxyIndex + 1;
-                    console.log(`Directory listing fetch failed, trying CORS proxy ${nextProxyIndex + 1}/${CORS_PROXIES.length}...`);
-                    return fetchFileList(nextProxyIndex);
-                }
-                
                 fileSelect.innerHTML = '<option value="">Error loading files</option>';
                 console.error('Error fetching file list:', error);
                 
-                // Show error in plot area
                 const plotDiv = document.getElementById('plot');
-                plotDiv.innerHTML = `<div class="error">Error loading file list: ${error.message}<br><br>Please refresh the page to try again.</div>`;
+                plotDiv.innerHTML = `<div class="error">Error loading file list: ${error.message}<br><br>Data source: ${DATA_BASE_URL}<br>(Physical path: \\atlas.shore.mbari.org\\ProjectLibrary\\901805_Coastal_Biogeochemical_Sensing\\PTC\\PTCData). Files and index.html must be in the same folder when using file://.</div>`;
             }
         }
 
@@ -278,33 +266,21 @@
             });
         }
 
-        async function loadFile(filename, proxyIndex = -1) {
+        async function loadFile(filename) {
             const plotDiv = document.getElementById('plot');
             plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
 
             try {
-                // The filename from dropdown should already be clean (decoded by parser)
-                // But ensure it doesn't have path components
                 let cleanFilename = filename.replace(/^\/+/, '').split('/').pop();
-                
-                // If it still has % characters, it might be double-encoded, try decoding
                 if (cleanFilename.includes('%')) {
                     try {
                         cleanFilename = decodeURIComponent(cleanFilename);
                     } catch (e) {
-                        // If decoding fails, use as-is
+                        // use as-is
                     }
                 }
                 
-                // Now encode it properly for the URL (only once)
-                // The filename should be the actual filename like "LX000_test_120325_lionCAP100_Ch A.csv"
-                let url = DATA_BASE_URL + encodeURIComponent(cleanFilename);
-                
-                // Use CORS proxy if specified (proxyIndex >= 0 means we're retrying with a proxy)
-                if (proxyIndex >= 0 && proxyIndex < CORS_PROXIES.length) {
-                    url = CORS_PROXIES[proxyIndex] + encodeURIComponent(url);
-                }
-                
+                const url = DATA_BASE_URL + encodeURIComponent(cleanFilename);
                 const response = await fetch(url);
                 
                 if (!response.ok) {
@@ -321,38 +297,21 @@
                 currentData = parsedData.data;
                 columns = parsedData.columns;
 
-                // Populate column dropdowns
                 populateColumnDropdowns();
 
-                // Set defaults
                 const xAxisSelect = document.getElementById('xAxisSelect');
                 const yAxisSelect = document.getElementById('yAxisSelect');
                 
                 if (xAxisSelect.value === '' || !columns.includes(xAxisSelect.value)) {
-                    xAxisSelect.value = 'DATE TIME';
+                    xAxisSelect.value = columns.includes('DATE TIME') ? 'DATE TIME' : columns[0];
                 }
                 if (yAxisSelect.value === '' || !columns.includes(yAxisSelect.value)) {
-                    yAxisSelect.value = 'VRS VOLTS';
+                    yAxisSelect.value = columns.includes('VRS VOLT') ? 'VRS VOLT' : (columns.includes('VRS VOLTS') ? 'VRS VOLTS' : columns[1] || columns[0]);
                 }
 
                 updatePlot();
             } catch (error) {
-                // If direct fetch failed and we haven't tried all proxies yet, retry with next proxy
-                if (proxyIndex < CORS_PROXIES.length - 1) {
-                    const nextProxyIndex = proxyIndex + 1;
-                    console.log(`Fetch failed, trying CORS proxy ${nextProxyIndex + 1}/${CORS_PROXIES.length}...`);
-                    return loadFile(filename, nextProxyIndex);
-                }
-                
-                let errorMessage = `Error loading file: ${error.message}`;
-                
-                // Check for CORS errors
-                if (error.message.includes('Failed to fetch') || error.name === 'TypeError' || error.message.includes('NetworkError')) {
-                    errorMessage += '<br><br><strong>CORS Error:</strong> The server does not allow cross-origin requests. ';
-                    errorMessage += 'Tried all available CORS proxies but they all failed.';
-                }
-                
-                plotDiv.innerHTML = `<div class="error">${errorMessage}</div>`;
+                plotDiv.innerHTML = `<div class="error">Error loading file: ${error.message}</div>`;
                 console.error('Error loading file:', error);
             }
         }
@@ -509,12 +468,18 @@
                 yAxisSelect.appendChild(optionY);
             });
             
-            // Restore selections if they still exist
+            // Restore selections if they still exist, otherwise set defaults
             if (columns.includes(currentX)) {
                 xAxisSelect.value = currentX;
+            } else if (columns.includes('DATE TIME')) {
+                xAxisSelect.value = 'DATE TIME';
             }
             if (columns.includes(currentY)) {
                 yAxisSelect.value = currentY;
+            } else if (columns.includes('VRS VOLT')) {
+                yAxisSelect.value = 'VRS VOLT';
+            } else if (columns.includes('VRS VOLTS')) {
+                yAxisSelect.value = 'VRS VOLTS';
             }
         }
 

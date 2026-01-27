@@ -1,6 +1,13 @@
 Goal: Build a dashboard with plotly.js that can be hosted as a public github pages website
 
-Data: Files are hosted publicly at https://www3.mbari.org/lobo/Data/PTCData/
+Data: Files are hosted publicly at view-source:https://www3.mbari.org/lobo/Data/PTCData/
+Parsing out files, there are three lines:
+1. header and link to parent directory
+2. page break
+3. links to data
+	A. After the <br><br>, A HREF="/lobo/Data/PTCData/DSL003r2_20260116.csv">DSL003r2_20260116.csv can be parsed. "/lobo/Data/PTCData/DSL003r2_20260116.csv" is the link. "DSL003r2_20260116.csv" is the filename.
+	B. Files are separated by <br> and the first file is the most recent
+
 The data is csv formatted with the following notes:
 Row 1: Column headers
 Example string:
@@ -87,3 +94,5 @@ yaxis: drop down menu with the list of columns. default VRS VOLTS
 xlabel: column name selected for xaxis
 ylabel: column name selected for yaxis
 plot title: filename
+
+Files range in size from 39391 - 10781549 bytes.
