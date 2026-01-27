@@ -127,11 +127,18 @@
 
     <script>
         // Configuration
-        const DATA_BASE_URL = 'https://www3.mbari.org/lobo/Data/PTCData/';
+        // Use local files from the repository to avoid CORS issues
+        // GitHub Pages can serve these files directly without CORS restrictions
+        const USE_LOCAL_FILES = true; // Set to false to use remote files
+        const LOCAL_DATA_BASE_URL = 'data/';
+        const REMOTE_DATA_BASE_URL = 'https://www3.mbari.org/lobo/Data/PTCData/';
         
-        // CORS proxy - use if direct fetch fails
-        // You can use any CORS proxy service, or set to empty string to disable
-        const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+        // CORS proxy options - tried in order if remote fetch fails
+        const CORS_PROXIES = [
+            'https://api.allorigins.win/raw?url=',
+            'https://corsproxy.io/?',
+            'https://api.codetabs.com/v1/proxy?quest='
+        ];
         
         // Known files list - update this if you know the file names
         // For a production version, you might want to fetch this from an API or directory listing
@@ -190,16 +197,23 @@
             });
         }
 
-        async function loadFile(filename, useProxy = false) {
+        async function loadFile(filename, proxyIndex = -1) {
             const plotDiv = document.getElementById('plot');
             plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
 
             try {
-                let url = DATA_BASE_URL + encodeURIComponent(filename);
+                let url;
                 
-                // Use CORS proxy if requested and available
-                if (useProxy && CORS_PROXY) {
-                    url = CORS_PROXY + encodeURIComponent(url);
+                // Use local files if enabled (recommended for GitHub Pages)
+                if (USE_LOCAL_FILES) {
+                    url = LOCAL_DATA_BASE_URL + encodeURIComponent(filename);
+                } else {
+                    url = REMOTE_DATA_BASE_URL + encodeURIComponent(filename);
+                    
+                    // Use CORS proxy if specified
+                    if (proxyIndex >= 0 && proxyIndex < CORS_PROXIES.length) {
+                        url = CORS_PROXIES[proxyIndex] + encodeURIComponent(url);
+                    }
                 }
                 
                 const response = await fetch(url);
@@ -234,10 +248,17 @@
 
                 updatePlot();
             } catch (error) {
-                // If direct fetch failed and we haven't tried proxy yet, retry with proxy
-                if (!useProxy && CORS_PROXY && (error.message.includes('Failed to fetch') || error.name === 'TypeError')) {
-                    console.log('Direct fetch failed, retrying with CORS proxy...');
-                    return loadFile(filename, true);
+                // If using remote files and direct fetch failed, try CORS proxies
+                if (!USE_LOCAL_FILES && proxyIndex < CORS_PROXIES.length - 1) {
+                    const nextProxyIndex = proxyIndex + 1;
+                    console.log(`Fetch failed, trying CORS proxy ${nextProxyIndex + 1}/${CORS_PROXIES.length}...`);
+                    return loadFile(filename, nextProxyIndex);
+                }
+                
+                // If using local files and it failed, try remote as fallback
+                if (USE_LOCAL_FILES && proxyIndex === -1) {
+                    console.log('Local file not found, trying remote...');
+                    return loadFileRemote(filename);
                 }
                 
                 let errorMessage = `Error loading file: ${error.message}`;
@@ -245,18 +266,55 @@
                 // Check for CORS errors
                 if (error.message.includes('Failed to fetch') || error.name === 'TypeError' || error.message.includes('NetworkError')) {
                     errorMessage += '<br><br><strong>CORS Error:</strong> The server does not allow cross-origin requests. ';
-                    if (CORS_PROXY) {
-                        errorMessage += 'Attempted to use CORS proxy but it also failed. ';
+                    if (!USE_LOCAL_FILES) {
+                        errorMessage += 'Tried all available CORS proxies but they all failed. ';
                     }
-                    errorMessage += 'You may need to:<ul style="margin-top: 10px; padding-left: 20px;">' +
-                                   '<li>Contact the server administrator to enable CORS headers</li>' +
-                                   '<li>Use a different CORS proxy service</li>' +
-                                   '<li>Host the CSV files in a location that allows CORS</li></ul>';
+                    errorMessage += 'Consider hosting the CSV files in the repository to avoid CORS issues.';
                 }
                 
                 plotDiv.innerHTML = `<div class="error">${errorMessage}</div>`;
                 console.error('Error loading file:', error);
             }
+        }
+        
+        async function loadFileRemote(filename) {
+            // Try remote with CORS proxies
+            for (let i = 0; i < CORS_PROXIES.length; i++) {
+                try {
+                    const url = CORS_PROXIES[i] + encodeURIComponent(REMOTE_DATA_BASE_URL + encodeURIComponent(filename));
+                    const response = await fetch(url);
+                    
+                    if (response.ok) {
+                        const csvText = await response.text();
+                        const parsedData = parseCSV(csvText);
+                        
+                        if (parsedData.data.length > 0) {
+                            currentData = parsedData.data;
+                            columns = parsedData.columns;
+                            populateColumnDropdowns();
+                            
+                            const xAxisSelect = document.getElementById('xAxisSelect');
+                            const yAxisSelect = document.getElementById('yAxisSelect');
+                            
+                            if (xAxisSelect.value === '' || !columns.includes(xAxisSelect.value)) {
+                                xAxisSelect.value = 'DATE TIME';
+                            }
+                            if (yAxisSelect.value === '' || !columns.includes(yAxisSelect.value)) {
+                                yAxisSelect.value = 'VRS VOLTS';
+                            }
+                            
+                            updatePlot();
+                            return;
+                        }
+                    }
+                } catch (e) {
+                    console.log(`CORS proxy ${i + 1} failed, trying next...`);
+                }
+            }
+            
+            // All proxies failed, show error
+            const plotDiv = document.getElementById('plot');
+            plotDiv.innerHTML = `<div class="error">Error loading file: Could not load from local or remote sources. Make sure the CSV files are in the data/ folder.</div>`;
         }
 
         function parseCSV(csvText) {
