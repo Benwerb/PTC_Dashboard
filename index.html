@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTC Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        .header {
+            background-color: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        label {
+            font-weight: 500;
+            color: #333;
+        }
+
+        select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            background-color: white;
+            cursor: pointer;
+            min-width: 200px;
+        }
+
+        select:hover {
+            border-color: #999;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #4a90e2;
+            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+        }
+
+        .plot-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 600px;
+        }
+
+        #plot {
+            width: 100%;
+            height: 80vh;
+            min-height: 600px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .error {
+            background-color: #fee;
+            color: #c33;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="control-group">
+                <label for="fileSelect">Files:</label>
+                <select id="fileSelect">
+                    <option value="">Loading files...</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="xAxisSelect">X-Axis:</label>
+                <select id="xAxisSelect">
+                    <option value="">Loading columns...</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="yAxisSelect">Y-Axis:</label>
+                <select id="yAxisSelect">
+                    <option value="">Loading columns...</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="plot-container">
+            <div id="plot">
+                <div class="loading">Select a file to load data...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const DATA_BASE_URL = 'https://www3.mbari.org/lobo/Data/PTCData/';
+        
+        // Known files list - update this if you know the file names
+        // For a production version, you might want to fetch this from an API or directory listing
+        const KNOWN_FILES = [
+            'LX000_ISOEMItest_120525_3_lionCAP100_Ch A.csv',
+            'LX000_test_120225_lionCAP100_Ch A.csv',
+            'LX000_test_120325_2_lionCAP100_Ch A.csv',
+            'LX000_test_120325_3_lionCAP100_Ch A.csv',
+            'LX000_test_120325_lionCAP100_Ch A.csv',
+            'LX002_fullcal_112625_lionCAP100_Ch A.csv'
+        ];
+
+        let currentData = null;
+        let columns = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeFileList();
+            setupEventListeners();
+        });
+
+        function initializeFileList() {
+            const fileSelect = document.getElementById('fileSelect');
+            fileSelect.innerHTML = '';
+            
+            // Sort files by name (assuming newer files have later dates in name)
+            const sortedFiles = [...KNOWN_FILES].sort().reverse();
+            
+            sortedFiles.forEach(file => {
+                const option = document.createElement('option');
+                option.value = file;
+                option.textContent = file;
+                fileSelect.appendChild(option);
+            });
+
+            // Select the first (most recent) file by default
+            if (sortedFiles.length > 0) {
+                fileSelect.value = sortedFiles[0];
+                loadFile(sortedFiles[0]);
+            }
+        }
+
+        function setupEventListeners() {
+            document.getElementById('fileSelect').addEventListener('change', function() {
+                if (this.value) {
+                    loadFile(this.value);
+                }
+            });
+
+            document.getElementById('xAxisSelect').addEventListener('change', function() {
+                updatePlot();
+            });
+
+            document.getElementById('yAxisSelect').addEventListener('change', function() {
+                updatePlot();
+            });
+        }
+
+        async function loadFile(filename) {
+            const plotDiv = document.getElementById('plot');
+            plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
+
+            try {
+                const url = DATA_BASE_URL + encodeURIComponent(filename);
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
+                }
+
+                const csvText = await response.text();
+                const parsedData = parseCSV(csvText);
+                
+                if (parsedData.data.length === 0) {
+                    throw new Error('No data found in file');
+                }
+                
+                currentData = parsedData.data;
+                columns = parsedData.columns;
+
+                // Populate column dropdowns
+                populateColumnDropdowns();
+
+                // Set defaults
+                const xAxisSelect = document.getElementById('xAxisSelect');
+                const yAxisSelect = document.getElementById('yAxisSelect');
+                
+                if (xAxisSelect.value === '' || !columns.includes(xAxisSelect.value)) {
+                    xAxisSelect.value = 'DATE TIME';
+                }
+                if (yAxisSelect.value === '' || !columns.includes(yAxisSelect.value)) {
+                    yAxisSelect.value = 'VRS VOLTS';
+                }
+
+                updatePlot();
+            } catch (error) {
+                let errorMessage = `Error loading file: ${error.message}`;
+                
+                // Check for CORS errors
+                if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
+                    errorMessage += '<br><br>This might be a CORS (Cross-Origin Resource Sharing) issue. ' +
+                                   'The data server may need to allow cross-origin requests, or you may need to use a CORS proxy.';
+                }
+                
+                plotDiv.innerHTML = `<div class="error">${errorMessage}</div>`;
+                console.error('Error loading file:', error);
+            }
+        }
+
+        function parseCSV(csvText) {
+            const lines = csvText.split('\n').map(line => line.trim()).filter(line => line);
+            
+            if (lines.length === 0) {
+                throw new Error('Empty CSV file');
+            }
+
+            // Row 1: Column headers
+            const headers = lines[0].split(',').map(h => h.trim());
+            
+            // Rows 2-24: Metadata (skip these)
+            // Row 25-end: Data
+            const dataRows = lines.slice(24); // Skip first 24 rows (0-indexed: row 0 is headers, rows 1-23 are metadata)
+
+            const data = [];
+            
+            for (let i = 0; i < dataRows.length; i++) {
+                const row = dataRows[i];
+                if (!row || row.startsWith('H,')) continue; // Skip any remaining metadata rows
+                
+                // Parse CSV row (handling quoted values)
+                const values = parseCSVRow(row);
+                
+                if (values.length !== headers.length) {
+                    console.warn(`Row ${i + 25} has ${values.length} columns, expected ${headers.length}`);
+                    continue;
+                }
+
+                const rowData = {};
+                headers.forEach((header, index) => {
+                    let value = values[index]?.trim() || '';
+                    
+                    // Convert date strings to Date objects
+                    if (header === 'Labview Date/Time' || header === 'DATE TIME') {
+                        if (value) {
+                            const date = parseDate(value);
+                            rowData[header] = date;
+                        } else {
+                            rowData[header] = null;
+                        }
+                    } else {
+                        // Try to convert to number
+                        const numValue = parseFloat(value);
+                        rowData[header] = isNaN(numValue) ? value : numValue;
+                    }
+                });
+                
+                data.push(rowData);
+            }
+
+            return { columns: headers, data: data };
+        }
+
+        function parseCSVRow(row) {
+            const values = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < row.length; i++) {
+                const char = row[i];
+                
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    values.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            values.push(current);
+            
+            return values;
+        }
+
+        function parseDate(dateString) {
+            // Try multiple date formats
+            // Format 1: "12/5/2025 11:39:06 AM"
+            // Format 2: "12/05/2025 19:35:35"
+            
+            if (!dateString) return null;
+            
+            // Remove extra spaces
+            dateString = dateString.trim();
+            
+            // Try parsing with Date constructor first
+            let date = new Date(dateString);
+            if (!isNaN(date.getTime())) {
+                return date;
+            }
+            
+            // Try manual parsing for "M/D/YYYY H:MM:SS AM/PM" format
+            const amPmMatch = dateString.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)/i);
+            if (amPmMatch) {
+                let [, month, day, year, hour, minute, second, ampm] = amPmMatch;
+                hour = parseInt(hour);
+                if (ampm.toUpperCase() === 'PM' && hour !== 12) hour += 12;
+                if (ampm.toUpperCase() === 'AM' && hour === 12) hour = 0;
+                date = new Date(year, month - 1, day, hour, minute, second);
+                if (!isNaN(date.getTime())) return date;
+            }
+            
+            // Try "M/D/YYYY H:MM:SS" format (24-hour)
+            const match = dateString.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+            if (match) {
+                let [, month, day, year, hour, minute, second] = match;
+                date = new Date(year, month - 1, day, hour, minute, second);
+                if (!isNaN(date.getTime())) return date;
+            }
+            
+            console.warn('Could not parse date:', dateString);
+            return null;
+        }
+
+        function populateColumnDropdowns() {
+            const xAxisSelect = document.getElementById('xAxisSelect');
+            const yAxisSelect = document.getElementById('yAxisSelect');
+            
+            // Save current selections
+            const currentX = xAxisSelect.value;
+            const currentY = yAxisSelect.value;
+            
+            // Clear and repopulate
+            xAxisSelect.innerHTML = '';
+            yAxisSelect.innerHTML = '';
+            
+            columns.forEach(col => {
+                const optionX = document.createElement('option');
+                optionX.value = col;
+                optionX.textContent = col;
+                xAxisSelect.appendChild(optionX);
+                
+                const optionY = document.createElement('option');
+                optionY.value = col;
+                optionY.textContent = col;
+                yAxisSelect.appendChild(optionY);
+            });
+            
+            // Restore selections if they still exist
+            if (columns.includes(currentX)) {
+                xAxisSelect.value = currentX;
+            }
+            if (columns.includes(currentY)) {
+                yAxisSelect.value = currentY;
+            }
+        }
+
+        function updatePlot() {
+            if (!currentData || currentData.length === 0) {
+                return;
+            }
+
+            const xAxisSelect = document.getElementById('xAxisSelect');
+            const yAxisSelect = document.getElementById('yAxisSelect');
+            const fileSelect = document.getElementById('fileSelect');
+            
+            const xColumn = xAxisSelect.value;
+            const yColumn = yAxisSelect.value;
+            const filename = fileSelect.value;
+
+            if (!xColumn || !yColumn) {
+                return;
+            }
+
+            // Extract data for selected columns
+            const xData = currentData.map(row => row[xColumn]).filter(val => val !== null && val !== undefined && val !== '');
+            const yData = currentData.map(row => row[yColumn]).filter(val => val !== null && val !== undefined && val !== '');
+
+            // Filter to only include rows where both x and y have valid values
+            const validIndices = [];
+            for (let i = 0; i < currentData.length; i++) {
+                const xVal = currentData[i][xColumn];
+                const yVal = currentData[i][yColumn];
+                if (xVal !== null && xVal !== undefined && xVal !== '' &&
+                    yVal !== null && yVal !== undefined && yVal !== '') {
+                    validIndices.push(i);
+                }
+            }
+
+            const filteredX = validIndices.map(i => currentData[i][xColumn]);
+            const filteredY = validIndices.map(i => currentData[i][yColumn]);
+
+            // Determine if x-axis is date/time
+            const isDateAxis = xColumn === 'Labview Date/Time' || xColumn === 'DATE TIME' || 
+                              (filteredX.length > 0 && filteredX[0] instanceof Date);
+
+            const trace = {
+                x: filteredX,
+                y: filteredY,
+                type: 'scatter',
+                mode: 'lines+markers',
+                marker: {
+                    size: 4,
+                    opacity: 0.6
+                },
+                line: {
+                    width: 1
+                }
+            };
+
+            const layout = {
+                title: filename || 'PTC Dashboard',
+                xaxis: {
+                    title: xColumn,
+                    type: isDateAxis ? 'date' : 'linear'
+                },
+                yaxis: {
+                    title: yColumn
+                },
+                margin: {
+                    l: 80,
+                    r: 50,
+                    t: 80,
+                    b: 80
+                },
+                hovermode: 'closest'
+            };
+
+            const config = {
+                responsive: true,
+                displayModeBar: true,
+                displaylogo: false
+            };
+
+            Plotly.newPlot('plot', [trace], layout, config);
+        }
+    </script>
+</body>
+</html>

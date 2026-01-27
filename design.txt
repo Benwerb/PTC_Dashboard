@@ -1,0 +1,89 @@
+Goal: Build a dashboard with plotly.js that can be hosted as a public github pages website
+
+Data: Files are hosted publicly at https://www3.mbari.org/lobo/Data/PTCData/
+The data is csv formatted with the following notes:
+Row 1: Column headers
+Example string:
+Labview Date/Time,Thermistor Temp,Bath Temp,Bath Set Point,Pressure (dBar),Max Flow,Flow Rate,Pump Volume,CRC,ID,DATE TIME,UTC SECS,CTD DEPTH,CTD TEMP,CTD SALINITY,SAMPLE COUNTER,RESET COUNTER,ERROR COUNTER,HOUSING TEMPERATURE,HOUSING HUMIDITY,INPUT VOLTAGE,INPUT CURRENT,FOOBAR PH VALUE,BACKUP BATTERY,VRS VOLTS,VRS STDDEV,VK VOLTS,VK STDDEV,IK AMPS,IB AMPS,Set_temp,Set_pres,StepNum
+
+Column, Data types
+Labview Date/Time, string
+Thermistor Temp, number
+Bath Temp, number
+Bath Set Point, number
+Pressure (dBar), number
+Max Flow, number
+Flow Rate, number
+Pump Volume, number
+CRC, string
+ID, string
+DATE TIME, string
+UTC SECS, number
+CTD DEPTH, number
+CTD TEMP, number
+CTD SALINITY, number
+SAMPLE COUNTER, number
+RESET COUNTER, number
+ERROR COUNTER, number
+HOUSING TEMPERATURE, number
+HOUSING HUMIDITY, number
+INPUT VOLTAGE, number
+INPUT CURRENT, number
+FOOBAR PH VALUE, number
+BACKUP BATTERY, number
+VRS VOLTS, number
+VRS STDDEV, number
+VK VOLTS, number
+VK STDDEV, number
+IK AMPS, number
+IB AMPS, number
+Set_temp, number
+Set_pres, number
+StepNum, number
+
+
+Rows 2-24: Meta data, marked with "H"
+Example:
+H, Datalogger Serial Num , SN:0777
+H, Application      Name , APF_MAIN.C
+H, App Build        Date , Nov  1 2018, 17:16:14
+H, Power Up Time   (GMT) , 12/30/2022 01:00:31
+H, Current  Time   (GMT) , 12/30/2022 18:01:03
+H, Alarm    Time   (GMT) , 12/30/2022 21:00:35
+H, Power Active  Timeout , 10
+H, Persistor CF2-1M Info , S/N:15083 - BIOS:4.03 - PicoDOS:4.03
+H, Compact FLASH    Size , 256614400
+H, Compact FLASH    Left , 29.51%
+H, Power Cycle   Counter , 91
+H, System Reset  Counter , 95
+H, System Error  Counter , 1132
+H, Last System     Error , -110
+H, Last System ErrorTime , 12/30/2022 17:54:28
+H, DURA  Error   Counter , 3
+H, Last DURA       Error , -301
+H, Last DURA Error  Time , 08/28/2021 02:09:43
+H, DURA Sample   Counter , 1141638
+H, Last Sample Rec. Time , 12/30/2022 18:00:59
+H, AtoD Reads per Sample , 10
+H, AtoD Reading    Delay , 250
+H, Samps per AtoD  Recal , 250
+
+Row 25-end is the data
+Example:
+12/5/2025 11:39:06 AM,,10.008,4.000,6.890000,0.035000,0.039000,196.837400,mFET,pH,12/05/2025 19:35:35,0,-1.00,-1.0000,-1.00000,0000001,0,0,26.00,42,16.10,16.10,-3.60,3.64,0.026696,0.000007,0.103108,0.000008,2.07,200.164,20.000000,10.000000,1.000000
+
+Convert
+Labview Date/Time from string to date type
+DATE TIME from string to date type
+
+Design:
+Website title: PTC Dashboard
+
+top left: "files: " drop down list of all files in the directory. default is the most recent file.
+
+plot: center of the website. takes up most of the page.
+xaxis: drop down menu with the list of columns. default DATE TIME
+yaxis: drop down menu with the list of columns. default VRS VOLTS
+xlabel: column name selected for xaxis
+ylabel: column name selected for yaxis
+plot title: filename
