@@ -136,45 +136,120 @@
             'https://api.codetabs.com/v1/proxy?quest='
         ];
         
-        // Known files list - update this if you know the file names
-        // For a production version, you might want to fetch this from an API or directory listing
-        const KNOWN_FILES = [
-            'LX000_ISOEMItest_120525_3_lionCAP100_Ch A.csv',
-            'LX000_test_120225_lionCAP100_Ch A.csv',
-            'LX000_test_120325_2_lionCAP100_Ch A.csv',
-            'LX000_test_120325_3_lionCAP100_Ch A.csv',
-            'LX000_test_120325_lionCAP100_Ch A.csv',
-            'LX002_fullcal_112625_lionCAP100_Ch A.csv'
-        ];
-
         let currentData = null;
         let columns = [];
+        let availableFiles = [];
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            initializeFileList();
+            fetchFileList();
             setupEventListeners();
         });
 
-        function initializeFileList() {
+        async function fetchFileList(proxyIndex = -1) {
+            const fileSelect = document.getElementById('fileSelect');
+            fileSelect.innerHTML = '<option value="">Loading files...</option>';
+
+            try {
+                let url = DATA_BASE_URL;
+                
+                // Use CORS proxy if specified
+                if (proxyIndex >= 0 && proxyIndex < CORS_PROXIES.length) {
+                    url = CORS_PROXIES[proxyIndex] + encodeURIComponent(url);
+                }
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to load directory listing: ${response.status} ${response.statusText}`);
+                }
+
+                const html = await response.text();
+                const files = parseDirectoryListing(html);
+                
+                if (files.length === 0) {
+                    throw new Error('No CSV files found in directory listing');
+                }
+                
+                availableFiles = files;
+                populateFileDropdown(files);
+                
+                // Select the first (most recent) file by default
+                if (files.length > 0) {
+                    fileSelect.value = files[0];
+                    loadFile(files[0]);
+                }
+            } catch (error) {
+                // If direct fetch failed and we haven't tried all proxies yet, retry with next proxy
+                if (proxyIndex < CORS_PROXIES.length - 1) {
+                    const nextProxyIndex = proxyIndex + 1;
+                    console.log(`Directory listing fetch failed, trying CORS proxy ${nextProxyIndex + 1}/${CORS_PROXIES.length}...`);
+                    return fetchFileList(nextProxyIndex);
+                }
+                
+                fileSelect.innerHTML = '<option value="">Error loading files</option>';
+                console.error('Error fetching file list:', error);
+                
+                // Show error in plot area
+                const plotDiv = document.getElementById('plot');
+                plotDiv.innerHTML = `<div class="error">Error loading file list: ${error.message}<br><br>Please refresh the page to try again.</div>`;
+            }
+        }
+
+        function parseDirectoryListing(html) {
+            const files = [];
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            
+            // Look for links to CSV files in the directory listing
+            // The directory listing typically has links like <a href="filename.csv">filename.csv</a>
+            const links = doc.querySelectorAll('a[href$=".csv"]');
+            
+            links.forEach(link => {
+                const filename = link.getAttribute('href');
+                // Skip parent directory links and ensure it's a CSV file
+                if (filename && filename.endsWith('.csv') && !filename.includes('..')) {
+                    files.push(filename);
+                }
+            });
+            
+            // If the above doesn't work, try parsing the HTML text directly
+            // The directory listing format shows: date time size filename.csv
+            if (files.length === 0) {
+                // Look for CSV filenames in table rows or links
+                // Pattern: filename.csv (may have spaces in name like "Ch A.csv")
+                const csvPattern = /([A-Za-z0-9_\-\.\s]+\.csv)/g;
+                const matches = html.match(csvPattern);
+                
+                if (matches) {
+                    matches.forEach(match => {
+                        const filename = match.trim();
+                        // Ensure it's a valid CSV filename and not part of a path
+                        if (filename.endsWith('.csv') && 
+                            !filename.includes('..') && 
+                            !filename.includes('/') &&
+                            !files.includes(filename)) {
+                            files.push(filename);
+                        }
+                    });
+                }
+            }
+            
+            // Remove duplicates and sort files by name (newer files typically have later dates in name)
+            const uniqueFiles = [...new Set(files)];
+            return uniqueFiles.sort().reverse();
+        }
+
+        function populateFileDropdown(files) {
             const fileSelect = document.getElementById('fileSelect');
             fileSelect.innerHTML = '';
             
-            // Sort files by name (assuming newer files have later dates in name)
-            const sortedFiles = [...KNOWN_FILES].sort().reverse();
-            
-            sortedFiles.forEach(file => {
+            files.forEach(file => {
                 const option = document.createElement('option');
                 option.value = file;
                 option.textContent = file;
                 fileSelect.appendChild(option);
             });
-
-            // Select the first (most recent) file by default
-            if (sortedFiles.length > 0) {
-                fileSelect.value = sortedFiles[0];
-                loadFile(sortedFiles[0]);
-            }
         }
 
         function setupEventListeners() {
