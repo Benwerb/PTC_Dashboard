@@ -129,6 +129,10 @@
         // Configuration
         const DATA_BASE_URL = 'https://www3.mbari.org/lobo/Data/PTCData/';
         
+        // CORS proxy - use if direct fetch fails
+        // You can use any CORS proxy service, or set to empty string to disable
+        const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
+        
         // Known files list - update this if you know the file names
         // For a production version, you might want to fetch this from an API or directory listing
         const KNOWN_FILES = [
@@ -186,12 +190,18 @@
             });
         }
 
-        async function loadFile(filename) {
+        async function loadFile(filename, useProxy = false) {
             const plotDiv = document.getElementById('plot');
             plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
 
             try {
-                const url = DATA_BASE_URL + encodeURIComponent(filename);
+                let url = DATA_BASE_URL + encodeURIComponent(filename);
+                
+                // Use CORS proxy if requested and available
+                if (useProxy && CORS_PROXY) {
+                    url = CORS_PROXY + encodeURIComponent(url);
+                }
+                
                 const response = await fetch(url);
                 
                 if (!response.ok) {
@@ -224,12 +234,24 @@
 
                 updatePlot();
             } catch (error) {
+                // If direct fetch failed and we haven't tried proxy yet, retry with proxy
+                if (!useProxy && CORS_PROXY && (error.message.includes('Failed to fetch') || error.name === 'TypeError')) {
+                    console.log('Direct fetch failed, retrying with CORS proxy...');
+                    return loadFile(filename, true);
+                }
+                
                 let errorMessage = `Error loading file: ${error.message}`;
                 
                 // Check for CORS errors
-                if (error.message.includes('Failed to fetch') || error.message.includes('CORS')) {
-                    errorMessage += '<br><br>This might be a CORS (Cross-Origin Resource Sharing) issue. ' +
-                                   'The data server may need to allow cross-origin requests, or you may need to use a CORS proxy.';
+                if (error.message.includes('Failed to fetch') || error.name === 'TypeError' || error.message.includes('NetworkError')) {
+                    errorMessage += '<br><br><strong>CORS Error:</strong> The server does not allow cross-origin requests. ';
+                    if (CORS_PROXY) {
+                        errorMessage += 'Attempted to use CORS proxy but it also failed. ';
+                    }
+                    errorMessage += 'You may need to:<ul style="margin-top: 10px; padding-left: 20px;">' +
+                                   '<li>Contact the server administrator to enable CORS headers</li>' +
+                                   '<li>Use a different CORS proxy service</li>' +
+                                   '<li>Host the CSV files in a location that allows CORS</li></ul>';
                 }
                 
                 plotDiv.innerHTML = `<div class="error">${errorMessage}</div>`;

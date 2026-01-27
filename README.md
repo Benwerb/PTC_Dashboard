@@ -24,6 +24,19 @@ An interactive dashboard for visualizing PTC (pH Temperature Conductivity) data 
 
 Data files are hosted at: `https://www3.mbari.org/lobo/Data/PTCData/`
 
+### CORS Issues
+
+If you encounter CORS (Cross-Origin Resource Sharing) errors, the dashboard will automatically attempt to use a CORS proxy. If the default proxy doesn't work, you can:
+
+1. **Change the CORS proxy**: Edit `index.html` and update the `CORS_PROXY` constant with an alternative service:
+   - `https://api.allorigins.win/raw?url=`
+   - `https://corsproxy.io/?`
+   - `https://api.codetabs.com/v1/proxy?quest=`
+
+2. **Host files locally**: Copy CSV files to a `data/` folder in your repository and update the code to use local files
+
+3. **Contact server admin**: Request that the server add CORS headers to allow cross-origin requests
+
 ## File List Configuration
 
 The dashboard uses a predefined list of files. To update the file list:
