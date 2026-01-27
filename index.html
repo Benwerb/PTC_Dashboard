@@ -203,13 +203,19 @@
             
             // Look for links to CSV files in the directory listing
             // The directory listing typically has links like <a href="filename.csv">filename.csv</a>
+            // or <a href="/lobo/Data/PTCData/filename.csv">filename.csv</a>
             const links = doc.querySelectorAll('a[href$=".csv"]');
             
             links.forEach(link => {
-                const filename = link.getAttribute('href');
-                // Skip parent directory links and ensure it's a CSV file
-                if (filename && filename.endsWith('.csv') && !filename.includes('..')) {
-                    files.push(filename);
+                let filename = link.getAttribute('href');
+                // Extract just the filename from the path
+                if (filename) {
+                    // Remove leading slashes and get the basename
+                    filename = filename.replace(/^\/+/, '').split('/').pop();
+                    // Skip parent directory links and ensure it's a CSV file
+                    if (filename && filename.endsWith('.csv') && !filename.includes('..') && filename !== '.csv') {
+                        files.push(filename);
+                    }
                 }
             });
             
@@ -223,11 +229,15 @@
                 
                 if (matches) {
                     matches.forEach(match => {
-                        const filename = match.trim();
+                        let filename = match.trim();
+                        // Extract just the filename if it contains a path
+                        if (filename.includes('/')) {
+                            filename = filename.split('/').pop();
+                        }
                         // Ensure it's a valid CSV filename and not part of a path
-                        if (filename.endsWith('.csv') && 
+                        if (filename && filename.endsWith('.csv') && 
                             !filename.includes('..') && 
-                            !filename.includes('/') &&
+                            !filename.startsWith('.') &&
                             !files.includes(filename)) {
                             files.push(filename);
                         }
@@ -273,7 +283,9 @@
             plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
 
             try {
-                let url = DATA_BASE_URL + encodeURIComponent(filename);
+                // Ensure filename doesn't have a leading slash or path
+                const cleanFilename = filename.replace(/^\/+/, '').split('/').pop();
+                let url = DATA_BASE_URL + encodeURIComponent(cleanFilename);
                 
                 // Use CORS proxy if specified (proxyIndex >= 0 means we're retrying with a proxy)
                 if (proxyIndex >= 0 && proxyIndex < CORS_PROXIES.length) {
@@ -333,18 +345,32 @@
         }
 
         function parseCSV(csvText) {
-            const lines = csvText.split('\n').map(line => line.trim()).filter(line => line);
+            // Check if we got HTML instead of CSV (might be directory listing or error page)
+            if (csvText.trim().startsWith('<!') || csvText.includes('<html') || csvText.includes('<HTML')) {
+                throw new Error('Received HTML instead of CSV file. The file may not exist or the URL is incorrect.');
+            }
             
-            if (lines.length === 0) {
+            const lines = csvText.split('\n');
+            
+            // Don't filter out empty lines yet - we need to preserve line numbers for metadata skipping
+            // Just trim whitespace but keep empty lines for now
+            const trimmedLines = lines.map(line => line.trim());
+            
+            if (trimmedLines.length === 0) {
                 throw new Error('Empty CSV file');
+            }
+            
+            // Check if we have at least the header row
+            if (trimmedLines.length < 1) {
+                throw new Error('CSV file appears to be empty or invalid');
             }
 
             // Row 1: Column headers
-            const headers = lines[0].split(',').map(h => h.trim());
+            const headers = trimmedLines[0].split(',').map(h => h.trim());
             
             // Rows 2-24: Metadata (skip these)
             // Row 25-end: Data
-            const dataRows = lines.slice(24); // Skip first 24 rows (0-indexed: row 0 is headers, rows 1-23 are metadata)
+            const dataRows = trimmedLines.slice(24); // Skip first 24 rows (0-indexed: row 0 is headers, rows 1-23 are metadata)
 
             const data = [];
             
