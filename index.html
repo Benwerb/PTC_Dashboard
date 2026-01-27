@@ -210,6 +210,12 @@
                 let filename = link.getAttribute('href');
                 // Extract just the filename from the path
                 if (filename) {
+                    // Decode URL-encoded characters (e.g., %20 becomes space)
+                    try {
+                        filename = decodeURIComponent(filename);
+                    } catch (e) {
+                        // If decoding fails, use as-is
+                    }
                     // Remove leading slashes and get the basename
                     filename = filename.replace(/^\/+/, '').split('/').pop();
                     // Skip parent directory links and ensure it's a CSV file
@@ -230,6 +236,12 @@
                 if (matches) {
                     matches.forEach(match => {
                         let filename = match.trim();
+                        // Decode URL-encoded characters if present
+                        try {
+                            filename = decodeURIComponent(filename);
+                        } catch (e) {
+                            // If decoding fails, use as-is
+                        }
                         // Extract just the filename if it contains a path
                         if (filename.includes('/')) {
                             filename = filename.split('/').pop();
@@ -283,8 +295,19 @@
             plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
 
             try {
+                // Decode filename if it's already URL-encoded (has % characters)
+                let cleanFilename = filename;
+                try {
+                    // Check if it contains URL-encoded characters
+                    if (filename.includes('%')) {
+                        cleanFilename = decodeURIComponent(filename);
+                    }
+                } catch (e) {
+                    // If decoding fails, use as-is
+                }
                 // Ensure filename doesn't have a leading slash or path
-                const cleanFilename = filename.replace(/^\/+/, '').split('/').pop();
+                cleanFilename = cleanFilename.replace(/^\/+/, '').split('/').pop();
+                // Now encode it properly for the URL (only once)
                 let url = DATA_BASE_URL + encodeURIComponent(cleanFilename);
                 
                 // Use CORS proxy if specified (proxyIndex >= 0 means we're retrying with a proxy)
