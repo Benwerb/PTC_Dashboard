@@ -57,6 +57,25 @@
             border-color: #999;
         }
 
+        select[multiple] {
+            min-height: 100px;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
         input[type="file"] {
             padding: 8px 12px;
             border: 1px solid #ccc;
@@ -119,10 +138,14 @@
         </div>
 
         <div class="control-group">
-            <label for="yAxisSelect">Y-Axis:</label>
-            <select id="yAxisSelect">
+            <label for="yAxisSelect">Y-Axis (hold Ctrl/Cmd for multiple):</label>
+            <select id="yAxisSelect" multiple>
                 <option>Select a file first</option>
             </select>
+        </div>
+
+        <div class="control-group">
+            <button id="fixAxisBtn">Fix Axis Limits</button>
         </div>
     </div>
 
@@ -206,34 +229,60 @@
         }
 
         // Update plot with selected data
-        function updatePlot() {
+        function updatePlot(fixedRanges = null) {
             const fileSelect = document.getElementById('fileSelect');
             const xAxisSelect = document.getElementById('xAxisSelect');
             const yAxisSelect = document.getElementById('yAxisSelect');
 
-            if (!currentData || !fileSelect.value || !xAxisSelect.value || !yAxisSelect.value) {
+            if (!currentData || !fileSelect.value || !xAxisSelect.value) {
+                return;
+            }
+
+            // Get selected Y columns
+            const selectedYColumns = Array.from(yAxisSelect.selectedOptions).map(opt => opt.value);
+
+            if (selectedYColumns.length === 0) {
                 return;
             }
 
             const xColumn = xAxisSelect.value;
-            const yColumn = yAxisSelect.value;
 
-            const trace = {
-                x: currentData.data[xColumn],
-                y: currentData.data[yColumn],
-                mode: 'lines+markers',
-                type: 'scatter',
-                marker: { size: 4 },
-                line: { width: 1 }
-            };
+            // Create a trace for each selected Y column
+            const traces = selectedYColumns.map((yColumn, index) => {
+                return {
+                    x: currentData.data[xColumn],
+                    y: currentData.data[yColumn],
+                    mode: 'lines+markers',
+                    type: 'scatter',
+                    name: yColumn,
+                    marker: { size: 4 },
+                    line: { width: 1 }
+                };
+            });
+
+            // Build y-axis title
+            const yAxisTitle = selectedYColumns.length === 1
+                ? selectedYColumns[0]
+                : 'Multiple Y-Axes';
 
             const layout = {
                 title: fileSelect.value,
                 xaxis: { title: xColumn },
-                yaxis: { title: yColumn },
+                yaxis: { title: yAxisTitle },
                 hovermode: 'closest',
-                margin: { t: 50, r: 50, b: 50, l: 80 }
+                margin: { t: 50, r: 50, b: 50, l: 80 },
+                showlegend: selectedYColumns.length > 1
             };
+
+            // Apply fixed ranges if provided
+            if (fixedRanges) {
+                if (fixedRanges.xaxis) {
+                    layout.xaxis.range = fixedRanges.xaxis;
+                }
+                if (fixedRanges.yaxis) {
+                    layout.yaxis.range = fixedRanges.yaxis;
+                }
+            }
 
             const config = {
                 responsive: true,
@@ -241,7 +290,7 @@
                 displaylogo: false
             };
 
-            Plotly.newPlot('plot', [trace], layout, config);
+            Plotly.newPlot('plot', traces, layout, config);
         }
 
         // Load selected file from uploaded files
@@ -331,14 +380,97 @@
                 xAxisSelect.value = 'DATE TIME';
             }
             if (currentColumns.includes('VRS VOLTS')) {
-                yAxisSelect.value = 'VRS VOLTS';
+                const vrsOption = Array.from(yAxisSelect.options).find(opt => opt.value === 'VRS VOLTS');
+                if (vrsOption) {
+                    vrsOption.selected = true;
+                }
             }
+        }
+
+        // Calculate percentile of an array
+        function percentile(arr, p) {
+            const sorted = arr.filter(x => typeof x === 'number' && !isNaN(x)).sort((a, b) => a - b);
+            if (sorted.length === 0) return null;
+
+            const index = (p / 100) * (sorted.length - 1);
+            const lower = Math.floor(index);
+            const upper = Math.ceil(index);
+            const weight = index % 1;
+
+            if (lower === upper) {
+                return sorted[lower];
+            }
+
+            return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+        }
+
+        // Fix axis limits using sensible ranges around the median
+        function fixAxisLimits() {
+            const xAxisSelect = document.getElementById('xAxisSelect');
+            const yAxisSelect = document.getElementById('yAxisSelect');
+
+            if (!currentData || !xAxisSelect.value) {
+                return;
+            }
+
+            const selectedYColumns = Array.from(yAxisSelect.selectedOptions).map(opt => opt.value);
+            if (selectedYColumns.length === 0) {
+                return;
+            }
+
+            const xColumn = xAxisSelect.value;
+
+            // Calculate sensible ranges using 5th and 95th percentiles
+            // This removes the extreme 5% on each end (outliers/spikes)
+            let xRange = null;
+            let yRange = null;
+
+            // X-axis range (if numeric data)
+            const xData = currentData.data[xColumn];
+            const numericXData = xData.filter(x => typeof x === 'number' && !isNaN(x));
+
+            if (numericXData.length > 0) {
+                const xMin = percentile(numericXData, 5);
+                const xMax = percentile(numericXData, 95);
+
+                if (xMin !== null && xMax !== null) {
+                    // Add 5% padding on each side
+                    const xPadding = (xMax - xMin) * 0.05;
+                    xRange = [xMin - xPadding, xMax + xPadding];
+                }
+            }
+
+            // Y-axis range - combine all selected Y columns
+            let allYValues = [];
+            selectedYColumns.forEach(yColumn => {
+                const yData = currentData.data[yColumn];
+                const numericYData = yData.filter(y => typeof y === 'number' && !isNaN(y));
+                allYValues = allYValues.concat(numericYData);
+            });
+
+            if (allYValues.length > 0) {
+                const yMin = percentile(allYValues, 5);
+                const yMax = percentile(allYValues, 95);
+
+                if (yMin !== null && yMax !== null) {
+                    // Add 5% padding on each side
+                    const yPadding = (yMax - yMin) * 0.05;
+                    yRange = [yMin - yPadding, yMax + yPadding];
+                }
+            }
+
+            // Update plot with fixed ranges
+            updatePlot({
+                xaxis: xRange,
+                yaxis: yRange
+            });
         }
 
         // Initialize dashboard
         function init() {
             const fileUpload = document.getElementById('fileUpload');
             const fileSelect = document.getElementById('fileSelect');
+            const fixAxisBtn = document.getElementById('fixAxisBtn');
 
             // Add event listeners
             fileUpload.addEventListener('change', (e) => {
@@ -353,8 +485,10 @@
                 }
             });
 
-            document.getElementById('xAxisSelect').addEventListener('change', updatePlot);
-            document.getElementById('yAxisSelect').addEventListener('change', updatePlot);
+            document.getElementById('xAxisSelect').addEventListener('change', () => updatePlot());
+            document.getElementById('yAxisSelect').addEventListener('change', () => updatePlot());
+
+            fixAxisBtn.addEventListener('click', fixAxisLimits);
 
             // Show initial message
             document.getElementById('plot').innerHTML =
