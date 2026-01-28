@@ -13,26 +13,23 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background-color: #f5f5f5;
+            font-family: Arial, sans-serif;
             padding: 20px;
+            background-color: #f5f5f5;
         }
 
-        .container {
-            max-width: 100%;
-            margin: 0 auto;
-        }
-
-        .header {
-            background-color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        h1 {
+            text-align: center;
             margin-bottom: 20px;
+            color: #333;
+        }
+
+        .controls {
             display: flex;
-            align-items: center;
             gap: 20px;
+            margin-bottom: 20px;
             flex-wrap: wrap;
+            align-items: center;
         }
 
         .control-group {
@@ -42,17 +39,17 @@
         }
 
         label {
-            font-weight: 500;
-            color: #333;
+            font-weight: bold;
+            color: #555;
         }
 
         select {
             padding: 8px 12px;
-            border: 1px solid #ddd;
+            border: 1px solid #ccc;
             border-radius: 4px;
-            font-size: 14px;
             background-color: white;
             cursor: pointer;
+            font-size: 14px;
             min-width: 200px;
         }
 
@@ -60,498 +57,182 @@
             border-color: #999;
         }
 
-        select:focus {
-            outline: none;
-            border-color: #4a90e2;
-            box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+        input[type="file"] {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: white;
+            cursor: pointer;
+            font-size: 14px;
         }
 
-        .plot-container {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            min-height: 600px;
+        input[type="file"]:hover {
+            border-color: #999;
         }
 
         #plot {
             width: 100%;
-            height: 80vh;
-            min-height: 600px;
+            height: calc(100vh - 200px);
+            min-height: 500px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
         .loading {
             text-align: center;
             padding: 40px;
             color: #666;
+            font-size: 18px;
         }
 
         .error {
-            background-color: #fee;
-            color: #c33;
-            padding: 15px;
+            color: #d32f2f;
+            padding: 20px;
+            background-color: #ffebee;
             border-radius: 4px;
-            margin: 10px 0;
+            margin-bottom: 20px;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="control-group">
-                <label for="fileSelect">Files:</label>
-                <select id="fileSelect">
-                    <option value="">Loading files...</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <label for="xAxisSelect">X-Axis:</label>
-                <select id="xAxisSelect">
-                    <option value="">Loading columns...</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <label for="yAxisSelect">Y-Axis:</label>
-                <select id="yAxisSelect">
-                    <option value="">Loading columns...</option>
-                </select>
-            </div>
+    <h1>PTC Dashboard</h1>
+
+    <div class="controls">
+        <div class="control-group">
+            <label for="fileUpload">Upload CSV:</label>
+            <input type="file" id="fileUpload" accept=".csv" multiple>
         </div>
 
-        <div class="plot-container">
-            <div id="plot">
-                <div class="loading">Select a file to load data...</div>
-            </div>
+        <div class="control-group">
+            <label for="fileSelect">Files:</label>
+            <select id="fileSelect">
+                <option value="">No files uploaded</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="xAxisSelect">X-Axis:</label>
+            <select id="xAxisSelect">
+                <option>Select a file first</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="yAxisSelect">Y-Axis:</label>
+            <select id="yAxisSelect">
+                <option>Select a file first</option>
+            </select>
         </div>
     </div>
 
+    <div id="plot"></div>
+
     <script>
-        // Configuration - local network data source
-        // When opened as file: index is at .../PTCData/index.html, data is in .../PTCData/
-        // Physical path: \\atlas.shore.mbari.org\ProjectLibrary\901805_Coastal_Biogeochemical_Sensing\PTC\PTCData
-        function getDataBaseUrl() {
-            if (location.protocol === 'file:') {
-                // Same folder as this page: strip "index.html" so base is the PTCData directory
-                return location.href.replace(/[^/]*$/, '');
-            }
-            // When served over http, use this path (adjust if your server mounts it elsewhere)
-            return '/ProjectLibrary/901805_Coastal_Biogeochemical_Sensing/PTC/PTCData/';
-        }
-        const DATA_BASE_URL = getDataBaseUrl();
-        
+        let uploadedFiles = {};
         let currentData = null;
-        let columns = [];
-        let availableFiles = [];
+        let currentColumns = [];
 
-        // Initialize
-        document.addEventListener('DOMContentLoaded', function() {
-            fetchFileList();
-            setupEventListeners();
-        });
+        // Parse CSV data, skipping metadata rows
+        function parseCSV(text) {
+            const lines = text.split('\n');
 
-        async function fetchFileList() {
-            const fileSelect = document.getElementById('fileSelect');
-            fileSelect.innerHTML = '<option value="">Loading files...</option>';
-
-            try {
-                const response = await fetch(DATA_BASE_URL);
-                
-                if (!response.ok) {
-                    throw new Error(`Failed to load directory listing: ${response.status} ${response.statusText}`);
-                }
-
-                const html = await response.text();
-                const files = parseDirectoryListing(html);
-                
-                if (files.length === 0) {
-                    throw new Error('No CSV files found in directory listing');
-                }
-                
-                availableFiles = files;
-                populateFileDropdown(files);
-                
-                // Select the first (most recent) file by default
-                if (files.length > 0) {
-                    fileSelect.value = files[0];
-                    loadFile(files[0]);
-                }
-            } catch (error) {
-                fileSelect.innerHTML = '<option value="">Error loading files</option>';
-                console.error('Error fetching file list:', error);
-                
-                const plotDiv = document.getElementById('plot');
-                plotDiv.innerHTML = `<div class="error">Error loading file list: ${error.message}<br><br>Data source: ${DATA_BASE_URL}<br>(Physical path: \\atlas.shore.mbari.org\\ProjectLibrary\\901805_Coastal_Biogeochemical_Sensing\\PTC\\PTCData). Files and index.html must be in the same folder when using file://.</div>`;
-            }
-        }
-
-        function parseDirectoryListing(html) {
-            const files = [];
-            const seenFiles = new Set();
-            
-            // Parse link text from HTML anchor tags
-            // Pattern: HREF="...">filename.csv</a> or href="...">filename.csv</a>
-            // Extract the filename from the link text (after "> and before </a>)
-            // This is more reliable than decoding the HREF because the link text is already decoded
-            const linkPattern = /HREF=["'][^"']*\.csv["']\s*>([^<]+\.csv)</gi;
-            const matches = html.matchAll(linkPattern);
-            
-            for (const match of matches) {
-                let filename = match[1];
-                if (!filename) continue;
-                
-                // The link text is already the clean filename (decoded)
-                filename = filename.trim();
-                
-                // Skip parent directory links and ensure it's a CSV file
-                if (filename && filename.endsWith('.csv') && !filename.includes('..') && filename !== '.csv') {
-                    // Add to list if not already seen
-                    if (!seenFiles.has(filename)) {
-                        files.push(filename);
-                        seenFiles.add(filename);
-                    }
-                }
-            }
-            
-            // Fallback: Also try parsing with DOMParser to get link text
-            if (files.length === 0) {
-                try {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    // Find all links that point to CSV files
-                    const links = doc.querySelectorAll('a[href$=".csv" i], a[HREF$=".csv" i]');
-                    
-                    links.forEach(link => {
-                        // Use the link text (which is already decoded) instead of href
-                        let filename = (link.textContent || link.innerText || '').trim();
-                        
-                        if (filename && filename.endsWith('.csv') && !filename.includes('..') && !seenFiles.has(filename)) {
-                            files.push(filename);
-                            seenFiles.add(filename);
-                        }
-                    });
-                } catch (e) {
-                    console.warn('DOMParser fallback failed:', e);
-                }
-            }
-            
-            // Sort files by name (newer files typically have later dates in name)
-            return files.sort().reverse();
-        }
-
-        function populateFileDropdown(files) {
-            const fileSelect = document.getElementById('fileSelect');
-            fileSelect.innerHTML = '';
-            
-            files.forEach(file => {
-                const option = document.createElement('option');
-                option.value = file;
-                option.textContent = file;
-                fileSelect.appendChild(option);
-            });
-        }
-
-        function setupEventListeners() {
-            document.getElementById('fileSelect').addEventListener('change', function() {
-                if (this.value) {
-                    loadFile(this.value);
-                }
-            });
-
-            document.getElementById('xAxisSelect').addEventListener('change', function() {
-                updatePlot();
-            });
-
-            document.getElementById('yAxisSelect').addEventListener('change', function() {
-                updatePlot();
-            });
-        }
-
-        async function loadFile(filename) {
-            const plotDiv = document.getElementById('plot');
-            plotDiv.innerHTML = '<div class="loading">Loading data...</div>';
-
-            try {
-                let cleanFilename = filename.replace(/^\/+/, '').split('/').pop();
-                if (cleanFilename.includes('%')) {
-                    try {
-                        cleanFilename = decodeURIComponent(cleanFilename);
-                    } catch (e) {
-                        // use as-is
-                    }
-                }
-                
-                const url = DATA_BASE_URL + encodeURIComponent(cleanFilename);
-                const response = await fetch(url);
-                
-                if (!response.ok) {
-                    throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
-                }
-
-                const csvText = await response.text();
-                const parsedData = parseCSV(csvText);
-                
-                if (parsedData.data.length === 0) {
-                    throw new Error('No data found in file');
-                }
-                
-                currentData = parsedData.data;
-                columns = parsedData.columns;
-
-                populateColumnDropdowns();
-
-                const xAxisSelect = document.getElementById('xAxisSelect');
-                const yAxisSelect = document.getElementById('yAxisSelect');
-                
-                if (xAxisSelect.value === '' || !columns.includes(xAxisSelect.value)) {
-                    xAxisSelect.value = columns.includes('DATE TIME') ? 'DATE TIME' : columns[0];
-                }
-                if (yAxisSelect.value === '' || !columns.includes(yAxisSelect.value)) {
-                    yAxisSelect.value = columns.includes('VRS VOLT') ? 'VRS VOLT' : (columns.includes('VRS VOLTS') ? 'VRS VOLTS' : columns[1] || columns[0]);
-                }
-
-                updatePlot();
-            } catch (error) {
-                plotDiv.innerHTML = `<div class="error">Error loading file: ${error.message}</div>`;
-                console.error('Error loading file:', error);
-            }
-        }
-
-        function parseCSV(csvText) {
-            // Check if we got HTML instead of CSV (might be directory listing or error page)
-            if (csvText.trim().startsWith('<!') || csvText.includes('<html') || csvText.includes('<HTML')) {
-                throw new Error('Received HTML instead of CSV file. The file may not exist or the URL is incorrect.');
-            }
-            
-            const lines = csvText.split('\n');
-            
-            // Don't filter out empty lines yet - we need to preserve line numbers for metadata skipping
-            // Just trim whitespace but keep empty lines for now
-            const trimmedLines = lines.map(line => line.trim());
-            
-            if (trimmedLines.length === 0) {
+            if (lines.length === 0) {
                 throw new Error('Empty CSV file');
             }
-            
-            // Check if we have at least the header row
-            if (trimmedLines.length < 1) {
-                throw new Error('CSV file appears to be empty or invalid');
-            }
 
-            // Row 1: Column headers
-            const headers = trimmedLines[0].split(',').map(h => h.trim());
-            
-            // Rows 2-24: Metadata (skip these)
-            // Row 25-end: Data
-            const dataRows = trimmedLines.slice(24); // Skip first 24 rows (0-indexed: row 0 is headers, rows 1-23 are metadata)
+            // First line is headers
+            const headers = lines[0].split(',').map(h => h.trim());
 
-            const data = [];
-            
-            for (let i = 0; i < dataRows.length; i++) {
-                const row = dataRows[i];
-                if (!row || row.startsWith('H,')) continue; // Skip any remaining metadata rows
-                
-                // Parse CSV row (handling quoted values)
-                const values = parseCSVRow(row);
-                
-                if (values.length !== headers.length) {
-                    console.warn(`Row ${i + 25} has ${values.length} columns, expected ${headers.length}`);
-                    continue;
+            // Skip metadata rows (rows starting with "H") and get data rows
+            const dataRows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line && !line.startsWith('H,') && !line.startsWith('H ')) {
+                    dataRows.push(line);
                 }
-
-                const rowData = {};
-                headers.forEach((header, index) => {
-                    let value = values[index]?.trim() || '';
-                    
-                    // Convert date strings to Date objects
-                    if (header === 'Labview Date/Time' || header === 'DATE TIME') {
-                        if (value) {
-                            const date = parseDate(value);
-                            rowData[header] = date;
-                        } else {
-                            rowData[header] = null;
-                        }
-                    } else {
-                        // Try to convert to number
-                        const numValue = parseFloat(value);
-                        rowData[header] = isNaN(numValue) ? value : numValue;
-                    }
-                });
-                
-                data.push(rowData);
             }
 
-            return { columns: headers, data: data };
+            // Parse data rows
+            const data = {};
+            headers.forEach(header => {
+                data[header] = [];
+            });
+
+            dataRows.forEach(row => {
+                const values = parseCSVRow(row);
+                if (values.length === headers.length) {
+                    headers.forEach((header, index) => {
+                        let value = values[index];
+
+                        // Convert date/time strings to Date objects for plotting
+                        if (header === 'DATE TIME' || header === 'Labview Date/Time') {
+                            value = value || null;
+                        } else {
+                            // Try to convert to number
+                            const num = parseFloat(value);
+                            value = isNaN(num) ? value : num;
+                        }
+
+                        data[header].push(value);
+                    });
+                }
+            });
+
+            return { headers, data };
         }
 
+        // Parse a CSV row handling quoted values
         function parseCSVRow(row) {
             const values = [];
             let current = '';
             let inQuotes = false;
-            
+
             for (let i = 0; i < row.length; i++) {
                 const char = row[i];
-                
+
                 if (char === '"') {
                     inQuotes = !inQuotes;
                 } else if (char === ',' && !inQuotes) {
-                    values.push(current);
+                    values.push(current.trim());
                     current = '';
                 } else {
                     current += char;
                 }
             }
-            values.push(current);
-            
+
+            values.push(current.trim());
             return values;
         }
 
-        function parseDate(dateString) {
-            // Try multiple date formats
-            // Format 1: "12/5/2025 11:39:06 AM"
-            // Format 2: "12/05/2025 19:35:35"
-            
-            if (!dateString) return null;
-            
-            // Remove extra spaces
-            dateString = dateString.trim();
-            
-            // Try parsing with Date constructor first
-            let date = new Date(dateString);
-            if (!isNaN(date.getTime())) {
-                return date;
-            }
-            
-            // Try manual parsing for "M/D/YYYY H:MM:SS AM/PM" format
-            const amPmMatch = dateString.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})\s+(AM|PM)/i);
-            if (amPmMatch) {
-                let [, month, day, year, hour, minute, second, ampm] = amPmMatch;
-                hour = parseInt(hour);
-                if (ampm.toUpperCase() === 'PM' && hour !== 12) hour += 12;
-                if (ampm.toUpperCase() === 'AM' && hour === 12) hour = 0;
-                date = new Date(year, month - 1, day, hour, minute, second);
-                if (!isNaN(date.getTime())) return date;
-            }
-            
-            // Try "M/D/YYYY H:MM:SS" format (24-hour)
-            const match = dateString.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
-            if (match) {
-                let [, month, day, year, hour, minute, second] = match;
-                date = new Date(year, month - 1, day, hour, minute, second);
-                if (!isNaN(date.getTime())) return date;
-            }
-            
-            console.warn('Could not parse date:', dateString);
-            return null;
-        }
-
-        function populateColumnDropdowns() {
+        // Update plot with selected data
+        function updatePlot() {
+            const fileSelect = document.getElementById('fileSelect');
             const xAxisSelect = document.getElementById('xAxisSelect');
             const yAxisSelect = document.getElementById('yAxisSelect');
-            
-            // Save current selections
-            const currentX = xAxisSelect.value;
-            const currentY = yAxisSelect.value;
-            
-            // Clear and repopulate
-            xAxisSelect.innerHTML = '';
-            yAxisSelect.innerHTML = '';
-            
-            columns.forEach(col => {
-                const optionX = document.createElement('option');
-                optionX.value = col;
-                optionX.textContent = col;
-                xAxisSelect.appendChild(optionX);
-                
-                const optionY = document.createElement('option');
-                optionY.value = col;
-                optionY.textContent = col;
-                yAxisSelect.appendChild(optionY);
-            });
-            
-            // Restore selections if they still exist, otherwise set defaults
-            if (columns.includes(currentX)) {
-                xAxisSelect.value = currentX;
-            } else if (columns.includes('DATE TIME')) {
-                xAxisSelect.value = 'DATE TIME';
-            }
-            if (columns.includes(currentY)) {
-                yAxisSelect.value = currentY;
-            } else if (columns.includes('VRS VOLT')) {
-                yAxisSelect.value = 'VRS VOLT';
-            } else if (columns.includes('VRS VOLTS')) {
-                yAxisSelect.value = 'VRS VOLTS';
-            }
-        }
 
-        function updatePlot() {
-            if (!currentData || currentData.length === 0) {
+            if (!currentData || !fileSelect.value || !xAxisSelect.value || !yAxisSelect.value) {
                 return;
             }
 
-            const xAxisSelect = document.getElementById('xAxisSelect');
-            const yAxisSelect = document.getElementById('yAxisSelect');
-            const fileSelect = document.getElementById('fileSelect');
-            
             const xColumn = xAxisSelect.value;
             const yColumn = yAxisSelect.value;
-            const filename = fileSelect.value;
-
-            if (!xColumn || !yColumn) {
-                return;
-            }
-
-            // Extract data for selected columns
-            const xData = currentData.map(row => row[xColumn]).filter(val => val !== null && val !== undefined && val !== '');
-            const yData = currentData.map(row => row[yColumn]).filter(val => val !== null && val !== undefined && val !== '');
-
-            // Filter to only include rows where both x and y have valid values
-            const validIndices = [];
-            for (let i = 0; i < currentData.length; i++) {
-                const xVal = currentData[i][xColumn];
-                const yVal = currentData[i][yColumn];
-                if (xVal !== null && xVal !== undefined && xVal !== '' &&
-                    yVal !== null && yVal !== undefined && yVal !== '') {
-                    validIndices.push(i);
-                }
-            }
-
-            const filteredX = validIndices.map(i => currentData[i][xColumn]);
-            const filteredY = validIndices.map(i => currentData[i][yColumn]);
-
-            // Determine if x-axis is date/time
-            const isDateAxis = xColumn === 'Labview Date/Time' || xColumn === 'DATE TIME' || 
-                              (filteredX.length > 0 && filteredX[0] instanceof Date);
 
             const trace = {
-                x: filteredX,
-                y: filteredY,
-                type: 'scatter',
+                x: currentData.data[xColumn],
+                y: currentData.data[yColumn],
                 mode: 'lines+markers',
-                marker: {
-                    size: 4,
-                    opacity: 0.6
-                },
-                line: {
-                    width: 1
-                }
+                type: 'scatter',
+                marker: { size: 4 },
+                line: { width: 1 }
             };
 
             const layout = {
-                title: filename || 'PTC Dashboard',
-                xaxis: {
-                    title: xColumn,
-                    type: isDateAxis ? 'date' : 'linear'
-                },
-                yaxis: {
-                    title: yColumn
-                },
-                margin: {
-                    l: 80,
-                    r: 50,
-                    t: 80,
-                    b: 80
-                },
-                hovermode: 'closest'
+                title: fileSelect.value,
+                xaxis: { title: xColumn },
+                yaxis: { title: yColumn },
+                hovermode: 'closest',
+                margin: { t: 50, r: 50, b: 50, l: 80 }
             };
 
             const config = {
@@ -562,6 +243,126 @@
 
             Plotly.newPlot('plot', [trace], layout, config);
         }
+
+        // Load selected file from uploaded files
+        function loadFile(filename) {
+            const plotDiv = document.getElementById('plot');
+
+            try {
+                if (!uploadedFiles[filename]) {
+                    throw new Error('File not found');
+                }
+
+                currentData = uploadedFiles[filename];
+                currentColumns = currentData.headers;
+
+                // Update axis selectors
+                updateAxisSelectors();
+
+                // Update plot
+                updatePlot();
+            } catch (error) {
+                console.error('Error loading file:', error);
+                plotDiv.innerHTML = `<div class="error">Error loading file: ${error.message}</div>`;
+            }
+        }
+
+        // Handle file upload
+        async function handleFileUpload(files) {
+            const fileSelect = document.getElementById('fileSelect');
+            const plotDiv = document.getElementById('plot');
+
+            plotDiv.innerHTML = '<div class="loading">Loading files...</div>';
+
+            try {
+                for (const file of files) {
+                    const text = await file.text();
+                    const parsedData = parseCSV(text);
+                    uploadedFiles[file.name] = parsedData;
+                }
+
+                // Update file dropdown
+                fileSelect.innerHTML = '';
+                const fileNames = Object.keys(uploadedFiles).sort((a, b) => b.localeCompare(a));
+
+                fileNames.forEach(filename => {
+                    const option = document.createElement('option');
+                    option.value = filename;
+                    option.textContent = filename;
+                    fileSelect.appendChild(option);
+                });
+
+                // Load the first file (most recent)
+                if (fileNames.length > 0) {
+                    fileSelect.value = fileNames[0];
+                    loadFile(fileNames[0]);
+                }
+
+            } catch (error) {
+                console.error('Error uploading files:', error);
+                plotDiv.innerHTML = `<div class="error">Error uploading files: ${error.message}</div>`;
+            }
+        }
+
+        // Update axis selector dropdowns
+        function updateAxisSelectors() {
+            const xAxisSelect = document.getElementById('xAxisSelect');
+            const yAxisSelect = document.getElementById('yAxisSelect');
+
+            // Clear existing options
+            xAxisSelect.innerHTML = '';
+            yAxisSelect.innerHTML = '';
+
+            // Add options for each column
+            currentColumns.forEach(column => {
+                const xOption = document.createElement('option');
+                xOption.value = column;
+                xOption.textContent = column;
+                xAxisSelect.appendChild(xOption);
+
+                const yOption = document.createElement('option');
+                yOption.value = column;
+                yOption.textContent = column;
+                yAxisSelect.appendChild(yOption);
+            });
+
+            // Set default values
+            if (currentColumns.includes('DATE TIME')) {
+                xAxisSelect.value = 'DATE TIME';
+            }
+            if (currentColumns.includes('VRS VOLTS')) {
+                yAxisSelect.value = 'VRS VOLTS';
+            }
+        }
+
+        // Initialize dashboard
+        function init() {
+            const fileUpload = document.getElementById('fileUpload');
+            const fileSelect = document.getElementById('fileSelect');
+
+            // Add event listeners
+            fileUpload.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleFileUpload(Array.from(e.target.files));
+                }
+            });
+
+            fileSelect.addEventListener('change', (e) => {
+                if (e.target.value) {
+                    loadFile(e.target.value);
+                }
+            });
+
+            document.getElementById('xAxisSelect').addEventListener('change', updatePlot);
+            document.getElementById('yAxisSelect').addEventListener('change', updatePlot);
+
+            // Show initial message
+            document.getElementById('plot').innerHTML =
+                '<div class="loading">Upload one or more CSV files to get started</div>';
+        }
+
+        // Start the application
+        init();
     </script>
 </body>
 </html>

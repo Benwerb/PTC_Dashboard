@@ -21,6 +21,16 @@ for i = 1:n
     name = ptcFiles(i).name;
     filename = fullfile(folder,name);
     PTC = read_ptc_csv(filename); % Function ensures table reads correctly
+    % LabviewDateTime format: '1/16/2026 2:22:20 PM'
+    PTC.LabviewDateTime = datetime(PTC.LabviewDateTime, ...
+        'InputFormat', 'M/d/yyyy h:mm:ss a', ...
+        'Format', 'yyyy-MM-dd HH:mm:ss');
+    
+    % DateTime format: '01/16/2026 22:18:35'
+    PTC.DateTime = datetime(PTC.DateTime, ...
+        'InputFormat', 'MM/dd/yyyy HH:mm:ss', ...
+        'Format', 'yyyy-MM-dd HH:mm:ss');
+    
     PTC.filename = repmat(string(name),height(PTC),1); % Add filename col
     sqlwrite(conn, 'PTC', PTC); % Push to database
 end
